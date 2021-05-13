@@ -1,0 +1,126 @@
+#!/bin/sh
+
+LIST="/var/cache/pacgit"
+
+C='\033[1m\033[34m' # info color
+E='\033[1m\033[31m' # error color
+R='\033[0m'         # reset color
+
+exists() {
+    command -v "$1" >/dev/null
+}
+
+info() {
+    printf "${C}INFO:${R} %s\n" "$@"
+}
+
+err() {
+    printf "${E}ERROR:${R} %s\n" "$@" >&2
+}
+
+# get github repo latest commit timestamp
+github_time() {
+    url=$(echo "$1" |
+              sed -En 's@^https://github.com/(.+)@https://api.github.com/repos/\1/commits/master@p')
+    [ "$url" ] || return 1
+    dt=$(curl -s "$url" |
+             sed -En 's/\s*"date":\s*"(.+)"\s*/\1/p' | head -n 1)
+    [ "$dt" ] || return 1
+    date --date "$dt" +%s
+}
+
+# check if a git-based package needs update
+pkg_needs_update() {
+    pac="$1"; link="$2"
+    bin=$(which "$pac" 2>/dev/null)
+    [ "$bin" ] || return 2
+
+    # timestamps to be compared
+    ts_bin= ; ts_github=
+
+    # last modified timestamp of the binary
+    ts_bin=$(date +%s -r "$bin")
+
+    # if a github repo, check the rest api for
+    # latest commit timestamp
+    ts_github=$(github_time "$link")
+    [ "$ts_github" ] &&
+        [ "$ts_github" -gt "$ts_bin" ] &&
+        echo "new git commit for '$pac' exist" &&
+        return 0
+
+    return 1
+}
+
+pkg_install() {
+    link="$1"
+    pac="$2"
+    [ -n "$pac" ] || pac="${link##*/}"
+    exists "$pac" && {
+        echo "$pac is already installed"
+        if reason=$(pkg_needs_update "$pac" "$link"); then
+            info "$pac needs to be updated"
+            echo "$reason"
+        else
+            return 0
+        fi
+    }
+    dir=$(mktemp -d)
+    git clone --depth 1 "$link" "$dir" &&
+        cd "$dir" && if [ -f setup.py ]; then
+            pip3 install .
+        else
+            {
+                if [ -f CMakeLists.txt ]; then
+                    mkdir -p build &&
+                        cd build &&
+                        cmake ..
+                fi
+                if [ -f autogen.sh ]; then ./autogen.sh; fi
+                if [ -f configure ];  then ./configure;  fi
+            } && make && make install
+        fi && {
+            echo "$link" >> "$LIST"
+            echo "Installed $pac"
+        }
+    cd /tmp && rm -rf "$dir" || return 1
+}
+
+pkg_uninstall() {
+    pac="$1"
+    bin=$(which "$pac" 2>/dev/null)
+    [ -n "$bin" ] || pac="${pac##*/}"
+    bin=$(which "$pac")
+    rm "$bin" && {
+        sed -i "s@.*$pac.*@@" "$LIST"
+        echo "Uninstalled $pac"
+    }
+}
+
+pkg_update_all() {
+    while read -r line; do
+        if [ -n "$line" ]; then
+            pkg_install "$line"
+        fi
+    done < "$LIST"
+}
+
+check_root() {
+    if [ "$(id -u)" != 0 ]; then
+        echo 'Root is needed'
+        exit 1
+    fi
+}
+
+main() {
+    check_root
+    cmd="$1"
+    shift
+    case "$cmd" in
+        install|-S)   pkg_install   "$@" ;;
+        uninstall|-R) pkg_uninstall "$@" ;;
+        upgrade|-u)   pkg_update_all     ;;
+    esac
+}
+
+main "$@"

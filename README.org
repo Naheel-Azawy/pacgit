@@ -1,0 +1,13 @@
+* pacgit
+  A quick and dirty way to install random git repos.
+
+** Usage
+   Example:
+   #+begin_src shell-script
+     pacgit -S https://github.com/Naheel-Azawy/fmz
+     pacgit -R https://github.com/Naheel-Azawy/fmz
+     pacgit -u
+   #+end_src
+
+** License
+   GPL-3
