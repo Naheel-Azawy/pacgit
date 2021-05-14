@@ -53,7 +53,7 @@ pkg_needs_update() {
     ts_github=$(github_time "$link")
     [ "$ts_github" ] &&
         [ "$ts_github" -gt "$ts_bin" ] &&
-        echo "new git commit for '$pac' exist" &&
+        info "new git commit for '$pac' exist" &&
         return 0
 
     return 1
@@ -61,12 +61,23 @@ pkg_needs_update() {
 
 pkg_install() {
     check_root
+
+    patch=
+    [ "$1" = '--patch' ] && {
+        patch="$2"
+        [ -f "$patch" ] || {
+            err "File '$patch' is not a file"
+            return 1
+        }
+        shift 2
+    }
     pac="$1"; link="$2"
     [ -n "$link" ] || {
         link="$pac"; pac="${link##*/}"
     }
+
     exists "$pac" && {
-        echo "$pac is already installed"
+        info "$pac is already installed"
         if reason=$(pkg_needs_update "$pac" "$link"); then
             info "$pac needs to be updated"
             echo "$reason"
@@ -74,23 +85,33 @@ pkg_install() {
             return 0
         fi
     }
+
     dir=$(mktemp -d)
     git clone --depth 1 "$link" "$dir" &&
-        cd "$dir" && if [ -f setup.py ]; then
-            pip3 install .
-        else
-            {
-                if [ -f CMakeLists.txt ]; then
-                    mkdir -p build &&
-                        cd build &&
-                        cmake ..
-                fi
-                if [ -f autogen.sh ]; then ./autogen.sh; fi
-                if [ -f configure ];  then ./configure;  fi
-            } && make && make install
-        fi && {
-            echo "$pac $link" >> "$LIST"
-            echo "Installed $pac"
+        cd "$dir" && {
+            if [ -f setup.py ]; then
+                pip3 install .
+            else
+                {
+                    if [ -f "$patch" ]; then
+                        info "Applying patch '$patch'"
+                        patch -i "$patch" || {
+                            err "Failed applying patch '$patch'"
+                            return 1
+                        }
+                    fi
+                    if [ -f CMakeLists.txt ]; then
+                        mkdir -p build &&
+                            cd build &&
+                            cmake ..
+                    fi
+                    if [ -f autogen.sh ]; then ./autogen.sh; fi
+                    if [ -f configure ];  then ./configure;  fi
+                } && make && make install
+            fi && {
+                echo "$pac $link" >> "$LIST"
+                info "Installed $pac"
+            }
         }
     cd /tmp && rm -rf "$dir" || return 1
 }
@@ -104,7 +125,7 @@ pkg_uninstall() {
     bin=$(which "$pac")
     rm "$bin" && {
         sed -i "s@^$pac .*@@; /^[[:space:]]*\$/d" "$LIST"
-        echo "Uninstalled $pac"
+        info "Uninstalled $pac"
     }
 }
 
@@ -123,7 +144,7 @@ pkg_list() {
 
 help() {
     SELF=$(basename "$0")
-    echo "usage: $SELF [-SRu] [NAME] [LINK]"
+    echo "usage: $SELF [-SRu] [--patch] [NAME] [LINK]"
 }
 
 main() {
