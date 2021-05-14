@@ -10,6 +10,13 @@ exists() {
     command -v "$1" >/dev/null
 }
 
+check_root() {
+    if [ "$(id -u)" != 0 ]; then
+        echo 'Root is needed'
+        exit 1
+    fi
+}
+
 info() {
     printf "${C}INFO:${R} %s\n" "$@"
 }
@@ -53,9 +60,11 @@ pkg_needs_update() {
 }
 
 pkg_install() {
-    link="$1"
-    pac="$2"
-    [ -n "$pac" ] || pac="${link##*/}"
+    check_root
+    pac="$1"; link="$2"
+    [ -n "$link" ] || {
+        link="$pac"; pac="${link##*/}"
+    }
     exists "$pac" && {
         echo "$pac is already installed"
         if reason=$(pkg_needs_update "$pac" "$link"); then
@@ -80,47 +89,57 @@ pkg_install() {
                 if [ -f configure ];  then ./configure;  fi
             } && make && make install
         fi && {
-            echo "$link" >> "$LIST"
+            echo "$pac $link" >> "$LIST"
             echo "Installed $pac"
         }
     cd /tmp && rm -rf "$dir" || return 1
 }
 
 pkg_uninstall() {
-    pac="$1"
-    bin=$(which "$pac" 2>/dev/null)
-    [ -n "$bin" ] || pac="${pac##*/}"
+    check_root
+    pac="$1"; link="$2"
+    [ -n "$link" ] || {
+        link="$pac"; pac="${link##*/}"
+    }
     bin=$(which "$pac")
     rm "$bin" && {
-        sed -i "s@.*$pac.*@@" "$LIST"
+        sed -i "s@^$pac .*@@; /^[[:space:]]*\$/d" "$LIST"
         echo "Uninstalled $pac"
     }
 }
 
 pkg_update_all() {
-    while read -r line; do
-        if [ -n "$line" ]; then
-            pkg_install "$line"
+    check_root
+    while read -r pac link; do
+        if [ -n "$link" ]; then
+            pkg_install "$pac" "$link"
         fi
     done < "$LIST"
 }
 
-check_root() {
-    if [ "$(id -u)" != 0 ]; then
-        echo 'Root is needed'
-        exit 1
-    fi
+pkg_list() {
+    cat "$LIST"
+}
+
+help() {
+    SELF=$(basename "$0")
+    echo "usage: $SELF [-SRu] [NAME] [LINK]"
 }
 
 main() {
-    check_root
-    cmd="$1"
-    shift
-    case "$cmd" in
-        install|-S)   pkg_install   "$@" ;;
-        uninstall|-R) pkg_uninstall "$@" ;;
-        upgrade|-u)   pkg_update_all     ;;
-    esac
+    if [ $# -gt 0 ]; then
+        cmd="$1"
+        shift
+        case "$cmd" in
+            install|-S)   pkg_install   "$@" ;;
+            uninstall|-R) pkg_uninstall "$@" ;;
+            upgrade|-u)   pkg_update_all     ;;
+            list|-Q)      pkg_list           ;;
+            *)            help               ;;
+        esac
+    else
+        help
+    fi
 }
 
 main "$@"
