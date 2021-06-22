@@ -148,6 +148,7 @@ help() {
 }
 
 main() {
+    mkdir -p /var/cache 2>/dev/null
     if [ $# -gt 0 ]; then
         cmd="$1"
         shift
