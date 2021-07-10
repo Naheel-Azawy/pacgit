@@ -1,6 +1,6 @@
 #!/bin/sh
 
-LIST="/var/cache/pacgit"
+REPOS="/var/cache/pacgit-repos"
 
 C='\033[1m\033[34m' # info color
 E='\033[1m\033[31m' # error color
@@ -25,38 +25,29 @@ err() {
     printf "${E}ERROR:${R} %s\n" "$@" >&2
 }
 
-# get github repo latest commit timestamp
-github_time() {
-    url=$(echo "$1" |
-              sed -En 's@^https://github.com/(.+)@https://api.github.com/repos/\1/commits/master@p')
-    [ "$url" ] || return 1
-    dt=$(curl -s "$url" |
-             sed -En 's/\s*"date":\s*"(.+)"\s*/\1/p' | head -n 1)
-    [ "$dt" ] || return 1
-    date --date "$dt" +%s
-}
-
-# check if a git-based package needs update
-pkg_needs_update() {
-    pac="$1"; link="$2"
-    bin=$(which "$pac" 2>/dev/null)
-    [ "$bin" ] || return 2
-
-    # timestamps to be compared
-    ts_bin= ; ts_github=
-
-    # last modified timestamp of the binary
-    ts_bin=$(date +%s -r "$bin")
-
-    # if a github repo, check the rest api for
-    # latest commit timestamp
-    ts_github=$(github_time "$link")
-    [ "$ts_github" ] &&
-        [ "$ts_github" -gt "$ts_bin" ] &&
-        info "new git commit for '$pac' exist" &&
-        return 0
-
-    return 1
+pkg_build_install() {
+    pac="$1"
+    patch="$2"
+    if [ -f setup.py ]; then
+        pip3 install .
+    else
+        {
+            if [ -f "$patch" ]; then
+                info "Applying patch '$patch'"
+                patch -i "$patch" || {
+                    err "Failed applying patch '$patch'"
+                    return 1
+                }
+            fi
+            if [ -f CMakeLists.txt ]; then
+                mkdir -p build &&
+                    cd build &&
+                    cmake ..
+            fi
+            if [ -f autogen.sh ]; then ./autogen.sh; fi
+            if [ -f configure ];  then ./configure;  fi
+        } && make && make install
+    fi && info "Installed $pac"
 }
 
 pkg_install() {
@@ -71,49 +62,37 @@ pkg_install() {
         }
         shift 2
     }
+
     pac="$1"; link="$2"
-    [ -n "$link" ] || {
+    dir="$REPOS/$pac"
+
+    # if link is provided as the only arg
+    [ -z "$link" ] && echo "$pac" | grep -q http && {
         link="$pac"; pac="${link##*/}"
+        dir="$REPOS/$pac"
     }
 
-    exists "$pac" && {
+    [ -d "$dir" ] || {
+        info "clonning to '$dir'..."
+        git clone --depth 1 "$link" "$dir"
+    }
+    cd "$dir" || {
+        err "dir '$dir' not found"
+        return 1
+    }
+
+    if exists "$pac"; then
         info "$pac is already installed"
-        if reason=$(pkg_needs_update "$pac" "$link"); then
-            info "$pac needs to be updated"
-            echo "$reason"
-        else
+        if git pull | grep 'up to date'; then
             return 0
+        else
+            info "updating $pac..."
+            pkg_build_install "$pac" "$patch"
         fi
-    }
-
-    dir=$(mktemp -d)
-    git clone --depth 1 "$link" "$dir" &&
-        cd "$dir" && {
-            if [ -f setup.py ]; then
-                pip3 install .
-            else
-                {
-                    if [ -f "$patch" ]; then
-                        info "Applying patch '$patch'"
-                        patch -i "$patch" || {
-                            err "Failed applying patch '$patch'"
-                            return 1
-                        }
-                    fi
-                    if [ -f CMakeLists.txt ]; then
-                        mkdir -p build &&
-                            cd build &&
-                            cmake ..
-                    fi
-                    if [ -f autogen.sh ]; then ./autogen.sh; fi
-                    if [ -f configure ];  then ./configure;  fi
-                } && make && make install
-            fi && {
-                echo "$pac $link" >> "$LIST"
-                info "Installed $pac"
-            }
-        }
-    cd /tmp && rm -rf "$dir" || return 1
+    else
+        git pull
+        pkg_build_install "$pac" "$patch"
+    fi
 }
 
 pkg_uninstall() {
@@ -122,24 +101,26 @@ pkg_uninstall() {
     [ -n "$link" ] || {
         link="$pac"; pac="${link##*/}"
     }
-    bin=$(which "$pac")
-    rm "$bin" && {
-        sed -i "s@^$pac .*@@; /^[[:space:]]*\$/d" "$LIST"
-        info "Uninstalled $pac"
-    }
+    bin=$(which "$pac" 2>/dev/null)
+    if [ -n "$bin" ]; then
+        rm "$bin" &&
+            rm -rf "${REPOS:?}/$pac" &&
+            info "Uninstalled $pac"
+    else
+        err "'$pac' is not installed"
+    fi
 }
 
 pkg_update_all() {
     check_root
-    while read -r pac link; do
-        if [ -n "$link" ]; then
-            pkg_install "$pac" "$link"
-        fi
-    done < "$LIST"
+    for dir in "$REPOS/"*; do
+        pac=$(basename "$dir")
+        pkg_install "$pac"
+    done
 }
 
 pkg_list() {
-    cat "$LIST"
+    command ls -1 "$REPOS"
 }
 
 help() {
@@ -148,7 +129,7 @@ help() {
 }
 
 main() {
-    mkdir -p /var/cache 2>/dev/null
+    mkdir -p "$REPOS"
     if [ $# -gt 0 ]; then
         cmd="$1"
         shift
