@@ -76,10 +76,15 @@ pkg_install() {
         info "clonning to '$dir'..."
         git clone --depth 1 "$link" "$dir"
     }
-    cd "$dir" || {
+
+    if cd "$dir"; then
+        # cleanup if needed
+        git reset --hard
+        git clean -fdx
+    else
         err "dir '$dir' not found"
         return 1
-    }
+    fi
 
     if exists "$pac"; then
         info "$pac is already installed"
