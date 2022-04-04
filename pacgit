@@ -28,26 +28,35 @@ err() {
 pkg_build_install() {
     pac="$1"
     patch="$2"
-    if [ -f setup.py ]; then
-        pip3 install .
-    else
-        {
-            if [ -f "$patch" ]; then
-                info "Applying patch '$patch'"
-                patch -i "$patch" || {
-                    err "Failed applying patch '$patch'"
-                    return 1
-                }
-            fi
-            if [ -f CMakeLists.txt ]; then
-                mkdir -p build &&
-                    cd build &&
-                    cmake ..
-            fi
-            if [ -f autogen.sh ]; then ./autogen.sh; fi
-            if [ -f configure ];  then ./configure;  fi
-        } && make && make install
-    fi && info "Installed $pac"
+
+    if [ -f "$patch" ]; then
+        info "Applying patch '$patch'"
+        patch -i "$patch" || {
+            err "Failed applying patch '$patch'"
+            return 1
+        }
+    fi &&
+
+        if [ -f setup.py ]; then
+            pip3 install .
+
+        elif [ -f meson.build ]; then
+            meson build  &&
+                cd build &&
+                ninja    &&
+                ninja install
+
+        else
+            {
+                if [ -f CMakeLists.txt ]; then
+                    mkdir -p build &&
+                        cd build &&
+                        cmake ..
+                fi
+                if [ -f autogen.sh ]; then ./autogen.sh; fi
+                if [ -f configure ];  then ./configure;  fi
+            } && make && make install
+        fi && info "Installed $pac"
 }
 
 pkg_install() {
