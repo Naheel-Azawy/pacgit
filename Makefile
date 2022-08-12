@@ -1,8 +1,11 @@
-PREFIX = /usr/bin/
+PREFIX    = /usr/local
+BINPREFIX = $(DESTDIR)$(PREFIX)/bin
 
 install:
-	mkdir -p $(DESTDIR)$(PREFIX)
-	cp -f pacgit $(DESTDIR)$(PREFIX)
+	mkdir -p $(BINPREFIX)
+	cp -f pacgit $(BINPREFIX)/
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/pacgit
+	rm -f $(BINPREFIX)/pacgit
+
+.PHONY: install uninstall
