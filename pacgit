@@ -6,6 +6,11 @@ C='\033[1m\033[34m' # info color
 E='\033[1m\033[31m' # error color
 R='\033[0m'         # reset color
 
+run() {
+    printf '\033[1;32m$\033[0m %s\n' "$*" >&2
+    eval "$*"
+}
+
 exists() {
     command -v "$1" >/dev/null
 }
@@ -31,31 +36,31 @@ pkg_build_install() {
 
     if [ -f "$patch" ]; then
         info "Applying patch '$patch'"
-        patch -i "$patch" || {
+        run patch -i "$patch" || {
             err "Failed applying patch '$patch'"
             return 1
         }
     fi &&
 
         if [ -f setup.py ]; then
-            pip3 install .
+            run pip3 install .
 
         elif [ -f meson.build ]; then
-            meson build  &&
-                cd build &&
-                ninja    &&
-                ninja install
+            run meson build  &&
+                run cd build &&
+                run ninja    &&
+                run ninja install
 
         else
             {
                 if [ -f CMakeLists.txt ]; then
-                    mkdir -p build &&
-                        cd build &&
-                        cmake ..
+                    run mkdir -p build &&
+                        run cd build   &&
+                        run cmake ..
                 fi
-                if [ -f autogen.sh ]; then ./autogen.sh; fi
-                if [ -f configure ];  then ./configure;  fi
-            } && make && make install
+                if [ -f autogen.sh ]; then run ./autogen.sh; fi
+                if [ -f configure ];  then run ./configure;  fi
+            } && run make && run make install
         fi && info "Installed $pac"
 }
 
@@ -83,20 +88,20 @@ pkg_install() {
 
     [ -d "$dir" ] || {
         info "clonning to '$dir'..."
-        git clone --depth 1 "$link" "$dir"
+        run git clone --depth 1 "$link" "$dir"
     }
 
-    if cd "$dir"; then
+    if run cd "$dir"; then
         # cleanup if needed
-        git reset --hard
-        git clean -fdx
+        run git reset --hard
+        run git clean -fdx
     else
         err "dir '$dir' not found"
         return 1
     fi
 
     if exists "$pac"; then
-        if git pull | grep 'up to date'; then
+        if run git pull | grep 'up to date'; then
             bin=$(which "$pac" 2>/dev/null)
             bin_date=$(date -d "$(stat --printf %y "$bin")" '+%s%N')
             repo_date=$(date -d "$(git log -1 --format=%cD)" '+%s%N')
@@ -112,7 +117,7 @@ pkg_install() {
             pkg_build_install "$pac" "$patch"
         fi
     else
-        git pull
+        run git pull
         pkg_build_install "$pac" "$patch"
     fi
 }
@@ -125,8 +130,8 @@ pkg_uninstall() {
     }
     bin=$(which "$pac" 2>/dev/null)
     if [ -n "$bin" ]; then
-        rm "$bin" &&
-            rm -rf "${REPOS:?}/$pac" &&
+        run rm "$bin" &&
+            run rm -rf "${REPOS:?}/$pac" &&
             info "Uninstalled $pac"
     else
         err "'$pac' is not installed"
