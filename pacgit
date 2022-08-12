@@ -96,11 +96,19 @@ pkg_install() {
     fi
 
     if exists "$pac"; then
-        info "$pac is already installed"
         if git pull | grep 'up to date'; then
-            return 0
+            bin=$(which "$pac" 2>/dev/null)
+            bin_date=$(date -d "$(stat --printf %y "$bin")" '+%s%N')
+            repo_date=$(date -d "$(git log -1 --format=%cD)" '+%s%N')
+            if [ "$bin_date" -lt "$repo_date" ]; then
+                info "binary is older than repo, updating $pac..."
+                pkg_build_install "$pac" "$patch"
+            else
+                info "$pac is installed and up to date"
+                return 0
+            fi
         else
-            info "updating $pac..."
+            info "new commit(s) in the repo, updating $pac..."
             pkg_build_install "$pac" "$patch"
         fi
     else
